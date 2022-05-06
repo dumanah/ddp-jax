@@ -4,10 +4,10 @@ from jax.experimental.ode import odeint
 
 class RLC_Continuous():
 
-    def __init__(self):
-        self.resistance = 1
-        self.inductance = 1
-        self.capacity = 5
+    def __init__(self,R=1,L=1,C=5):
+        self.resistance = R
+        self.inductance = L
+        self.capacity = C
         self.tau = 0.5  # seconds between state updates
         self.state_dim = 2  # (i(t),v_c(t))
         self.state = None

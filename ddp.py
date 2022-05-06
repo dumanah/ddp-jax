@@ -1,6 +1,5 @@
 from jax import grad, jacobian
 import jax.numpy as jnp
-from sympy import prime
 
 class DDP:
     def __init__(self, next_state, running_cost, final_cost, state_dim, pred_time=50):
@@ -59,7 +58,7 @@ class DDP:
             kk_seq.append(kk)
         k_seq.reverse()
         kk_seq.reverse()
-        return k_seq, kk_seq
+        return k_seq, kk_seq, dv
 
     def forward(self, x_seq, u_seq, k_seq, kk_seq):
         x_seq_hat = jnp.array(x_seq)
