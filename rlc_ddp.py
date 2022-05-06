@@ -35,7 +35,7 @@ if __name__ == '__main__':
     # DDP Iteration
     iter = 0
     dv = 1
-    while (dv > 1e-8):
+    while (dv > 1e-8): # convergence of value function
         start_time = time.time()
         k_seq, kk_seq, dv = ddp.backward(x_seq, u_seq)
         x_seq, u_seq = ddp.forward(x_seq, u_seq, k_seq, kk_seq)
