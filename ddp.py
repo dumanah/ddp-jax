@@ -1,5 +1,6 @@
-from jax import grad, jacobian
+from jax import grad, jacobian, jit
 import jax.numpy as jnp
+import warnings
 
 class DDP:
     def __init__(self, next_state, running_cost, final_cost, state_dim, pred_time=50):
@@ -7,20 +8,23 @@ class DDP:
         self.v = [0.0 for _ in range(pred_time + 1)]
         self.v_x = [jnp.zeros(state_dim) for _ in range(pred_time + 1)]
         self.v_xx = [jnp.zeros((state_dim, state_dim)) for _ in range(pred_time + 1)]
-        self.f = next_state
+        self.backward_pass_done = 0
+        
+        #Step 1: Differentiate the dynamics and the costs
+        self.f = next_state 
         self.lf = final_cost
-        self.lf_x = grad(self.lf)
-        self.lf_xx = jacobian(self.lf_x)
-        self.l_x = grad(running_cost, 0)
-        self.l_u = grad(running_cost, 1)
-        self.l_xx = jacobian(self.l_x, 0)
-        self.l_uu = jacobian(self.l_u, 1)
-        self.l_ux = jacobian(self.l_u, 0)
-        self.f_x = jacobian(self.f, 0)
-        self.f_u = jacobian(self.f, 1)
-        self.f_xx = jacobian(self.f_x, 0)
-        self.f_uu = jacobian(self.f_u, 1)
-        self.f_ux = jacobian(self.f_u, 0)
+        self.lf_x = jit(grad(self.lf))
+        self.lf_xx = jit(jacobian(self.lf_x))
+        self.l_x = jit(grad(running_cost, 0))
+        self.l_u = jit(grad(running_cost, 1))
+        self.l_xx = jit(jacobian(self.l_x, 0))
+        self.l_uu = jit(jacobian(self.l_u, 1))
+        self.l_ux = jit(jacobian(self.l_u, 0))
+        self.f_x = jit(jacobian(self.f, 0))
+        self.f_u = jit(jacobian(self.f, 1))
+        self.f_xx = jit(jacobian(self.f_x, 0))
+        self.f_uu = jit(jacobian(self.f_u, 1))
+        self.f_ux = jit(jacobian(self.f_u, 0))
 
     def is_pos_def(self,x):
       return jnp.all(jnp.linalg.eigvalsh(x)>0)
@@ -44,7 +48,7 @@ class DDP:
               jnp.dot(self.v_x[t + 1], jnp.squeeze(self.f_uu(x_seq[t], u_seq[t])))
 
             if not self.is_pos_def(q_uu):
-              raise ValueError("Q_uu is not positive definite!")
+              warnings.warn("Q_uu is not positive definite!")
             q_ux = self.l_ux(x_seq[t], u_seq[t]) + jnp.matmul(tmp, f_x_t) + \
               jnp.dot(self.v_x[t + 1], jnp.squeeze(self.f_ux(x_seq[t], u_seq[t])))
             inv_q_uu = jnp.linalg.inv(q_uu)
