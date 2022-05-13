@@ -1,3 +1,6 @@
-jaxlib==0.3.10
+env==0.1.0
+gym==0.23.1
 jax==0.3.10
 matplotlib==3.1.2
+numpy==1.17.4
+tabulate==0.8.9
