@@ -8,7 +8,7 @@ class RLC_Continuous():
         self.resistance = R
         self.inductance = L
         self.capacity = C
-        self.tau = 0.5  # seconds between state updates
+        self.tau = 0.02  # seconds between state updates
         self.state_dim = 2  # (i(t),v_c(t))
         self.state = None
 
