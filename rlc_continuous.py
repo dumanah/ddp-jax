@@ -30,7 +30,6 @@ class RLC_Continuous():
             assert self.state is not None, "Call reset before using step method."
             state = self.state
             self.state = self.next_states(state,action)
-            i, v_c = self.state
 
         return jnp.array(self.state)
 

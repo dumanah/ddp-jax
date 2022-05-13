@@ -5,7 +5,7 @@ permalink: https://perma.cc/C9ZM-652R
 """
 
 import math
-from typing import Optional, Union
+from typing import Union
 import numpy as np
 from diffrax import diffeqsolve, ODETerm, Dopri5, Euler, Heun
 import gym
@@ -13,6 +13,8 @@ from gym import logger, spaces
 from gym.error import DependencyNotInstalled
 import jax.numpy as jnp
 from jax.experimental.ode import odeint
+from jax import jit
+from functools import partial
 
 
 class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
@@ -21,13 +23,13 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
     def __init__(self):
         self.gravity = 9.8
-        self.masscart = 1.0
+        self.masscart = 1
         self.masspole = 0.1
         self.total_mass = self.masspole + self.masscart
         self.length = 0.5  # actually half the pole's length
-        self.polemass_length = self.masspole * self.length
-        self.max_force = 100
-        self.polemass_gravity = self.masspole*self.gravity
+        self.polemass_length = self.masspole * self.length # because it will be used many times in calculations
+        self.max_force = 400
+        self.polemass_gravity = self.masspole*self.gravity # will be used later in calculations
         self.tau = 0.05  # seconds between state updates
         self.diffrax_solver = Euler()
 
@@ -57,6 +59,7 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         self.steps_beyond_done = None
 
+    @partial(jit, static_argnums=(0,))
     def state_eq(self, state, t, u):
         x, x_dot, theta, theta_dot = state
         force = u[0]
@@ -69,6 +72,7 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         return jnp.array([x_dot,x_dot_dot,theta_dot,theta_dot_dot])
 
+    @partial(jit, static_argnums=(0,))
     def next_state(self,st,u):
         sol = odeint(self.state_eq,st, jnp.array([0., self.tau]),u)
         return jnp.asarray(sol[-1])
@@ -111,76 +115,38 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         solution = diffeqsolve(ODETerm(self.state_eq_diffrax), self.diffrax_solver, t0=0, t1=self.tau, dt0=self.tau, y0=st,args=u)
         return solution.ys[0]
 
-    def step(self, action, integration='odeint'):
+    def step(self, action):
         
-        if integration == 'odeint':
-            err_msg = f"{action!r} ({type(action)}) invalid"
-            assert self.action_space.contains(action), err_msg
-            assert self.state is not None, "Call reset before using step method."
-    
-            state = self.state
-            self.state = self.next_state(state,action)
-            x, x_dot, theta, theta_dot = self.state
+        err_msg = f"{action!r} ({type(action)}) invalid"
+        assert self.action_space.contains(action), err_msg
+        assert self.state is not None, "Call reset before using step method."
 
-            done = bool(
-                x < -self.x_threshold
-                or x > self.x_threshold
-                or theta < -self.theta_threshold_radians
-                or theta > self.theta_threshold_radians
-            )
+        state = self.state
+        self.state = self.next_state(state,action)
+        x, x_dot, theta, theta_dot = self.state
 
-            if not done:
-                reward = 1.0
-            elif self.steps_beyond_done is None:
-                # Pole just fell!
-                self.steps_beyond_done = 0
-                reward = 1.0
-            else:
-                if self.steps_beyond_done == 0:
-                    logger.warn(
-                        "You are calling 'step()' even though this "
-                        "environment has already returned done = True. You "
-                        "should always call 'reset()' once you receive 'done = "
-                        "True' -- any further steps are undefined behavior."
-                    )
-                self.steps_beyond_done += 1
-                reward = 0.0
-
-        elif integration == 'euler':
-            err_msg = f"{action!r} ({type(action)}) invalid"
-            assert self.action_space.contains(action), err_msg
-            assert self.state is not None, "Call reset before using step method."
-            x, x_dot, theta, theta_dot = self.state
-            force = action[0]
-            costheta = math.cos(theta)
-            sintheta = math.sin(theta)
-
-            # For the interested reader:
-            # https://coneural.org/florian/papers/05_cart_pole.pdf
-            temp = (
-                force + self.polemass_length * theta_dot**2 * sintheta
-            ) / self.total_mass
-            thetaacc = (self.gravity * sintheta - costheta * temp) / (
-                self.length * (4.0 / 3.0 - self.masspole * costheta**2 / self.total_mass)
-            )
-            xacc = temp - self.polemass_length * thetaacc * costheta / self.total_mass
-
-            
-            x_dot = x_dot + self.tau * xacc
-            x = x + self.tau * x_dot
-            theta_dot = theta_dot + self.tau * thetaacc
-            theta = theta + self.tau * theta_dot
-
-            self.state = (x, x_dot, theta, theta_dot)
-
-            done = bool(
-                x < -self.x_threshold
-                or x > self.x_threshold
-                or theta < -self.theta_threshold_radians
-                or theta > self.theta_threshold_radians
-            )
-
-        reward = 0
+        done = bool(
+            x < -self.x_threshold
+            or x > self.x_threshold
+            or theta < -self.theta_threshold_radians
+            or theta > self.theta_threshold_radians
+        )
+        if not done:
+            reward = 1.0
+        elif self.steps_beyond_done is None:
+            # Pole just fell!
+            self.steps_beyond_done = 0
+            reward = 1.0
+        else:
+            if self.steps_beyond_done == 0:
+                logger.warn(
+                    "You are calling 'step()' even though this "
+                    "environment has already returned done = True. You "
+                    "should always call 'reset()' once you receive 'done = "
+                    "True' -- any further steps are undefined behavior."
+                )
+            self.steps_beyond_done += 1
+            reward = 0.0
         return np.array(self.state, dtype=np.float32), reward, done, {}
 
     def reset(self):
