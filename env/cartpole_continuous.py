@@ -33,7 +33,7 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.max_force = 100
         # will be used later in calculations
         self.polemass_gravity = self.masspole*self.gravity
-        self.tau = 0.05  # seconds between state updates
+        self.tau = 0.02  # seconds between state updates
         self.diffrax_solver = Euler()  # choose ode type to solve with diffrax
 
         # Angle at which to fail the episode
