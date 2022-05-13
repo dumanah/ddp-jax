@@ -7,6 +7,7 @@ permalink: https://perma.cc/C9ZM-652R
 import math
 from typing import Union
 import numpy as np
+
 # To test different ode types written for jax, but not implemented
 from diffrax import diffeqsolve, ODETerm, Dopri5, Euler, Heun
 import gym
@@ -32,12 +33,12 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.polemass_length = self.masspole * self.length
         self.max_force = 100
         # will be used later in calculations
-        self.polemass_gravity = self.masspole*self.gravity
-        self.tau = 0.05  # seconds between state updates
+        self.polemass_gravity = self.masspole * self.gravity
+        self.tau = 0.02  # seconds between state updates
         self.diffrax_solver = Euler()  # choose ode type to solve with diffrax
 
         # Angle at which to fail the episode
-        self.theta_threshold_radians = 2*math.pi
+        self.theta_threshold_radians = 2 * math.pi
         self.x_threshold = 4
 
         # Angle limit set to 2 * theta_threshold_radians so failing observation
@@ -53,7 +54,8 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         )
 
         self.action_space = spaces.Box(
-            low=-self.max_force, high=self.max_force, shape=(1,))
+            low=-self.max_force, high=self.max_force, shape=(1,)
+        )
         self.observation_space = spaces.Box(-high, high, dtype=np.float32)
 
         self.screen = None
@@ -71,16 +73,22 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         sintheta = jnp.sin(theta)
         calc_den_help = self.masscart + (self.masspole * (sintheta**2))
 
-        x_dot_dot = (force + self.polemass_length*sintheta*(theta_dot**2) -
-                     self.polemass_gravity * costheta * sintheta) / calc_den_help
-        theta_dot_dot = (-force*costheta - self.polemass_length*sintheta*costheta*(
-            theta_dot**2) + self.total_mass*self.gravity*sintheta) / (self.length*calc_den_help)
+        x_dot_dot = (
+            force
+            + self.polemass_length * sintheta * (theta_dot**2)
+            - self.polemass_gravity * costheta * sintheta
+        ) / calc_den_help
+        theta_dot_dot = (
+            -force * costheta
+            - self.polemass_length * sintheta * costheta * (theta_dot**2)
+            + self.total_mass * self.gravity * sintheta
+        ) / (self.length * calc_den_help)
 
         return jnp.array([x_dot, x_dot_dot, theta_dot, theta_dot_dot])
 
     @partial(jit, static_argnums=(0,))
     def next_state(self, st, u):
-        sol = odeint(self.state_eq, st, jnp.array([0., self.tau]), u)
+        sol = odeint(self.state_eq, st, jnp.array([0.0, self.tau]), u)
         return jnp.asarray(sol[-1])
 
     # notice the position of t is different, odesolver of jax.
@@ -91,10 +99,16 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         sintheta = jnp.sin(theta)
         calc_den_help = self.masscart + (self.masspole * (sintheta**2))
 
-        x_dot_dot = (force + self.polemass_length*sintheta*(theta_dot**2) -
-                     self.polemass_gravity * costheta * sintheta) / calc_den_help
-        theta_dot_dot = (-force*costheta - self.polemass_length*sintheta*costheta*(
-            theta_dot**2) + self.total_mass*self.gravity*sintheta) / (self.length*calc_den_help)
+        x_dot_dot = (
+            force
+            + self.polemass_length * sintheta * (theta_dot**2)
+            - self.polemass_gravity * costheta * sintheta
+        ) / calc_den_help
+        theta_dot_dot = (
+            -force * costheta
+            - self.polemass_length * sintheta * costheta * (theta_dot**2)
+            + self.total_mass * self.gravity * sintheta
+        ) / (self.length * calc_den_help)
 
         return jnp.array([x_dot, x_dot_dot, theta_dot, theta_dot_dot])
 
@@ -107,8 +121,7 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             force + self.polemass_length * theta_dot**2 * sintheta
         ) / self.total_mass
         thetaacc = (self.gravity * sintheta - costheta * temp) / (
-            self.length * (4.0 / 3.0 - self.masspole *
-                           costheta**2 / self.total_mass)
+            self.length * (4.0 / 3.0 - self.masspole * costheta**2 / self.total_mass)
         )
         xacc = temp - self.polemass_length * thetaacc * costheta / self.total_mass
 
@@ -119,8 +132,15 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         return jnp.array([x, x_dot, theta, theta_dot])
 
     def next_state_diffrax(self, st, u):
-        solution = diffeqsolve(ODETerm(self.state_eq_diffrax), self.diffrax_solver,
-                               t0=0, t1=self.tau, dt0=self.tau, y0=st, args=u)
+        solution = diffeqsolve(
+            ODETerm(self.state_eq_diffrax),
+            self.diffrax_solver,
+            t0=0,
+            t1=self.tau,
+            dt0=self.tau,
+            y0=st,
+            args=u,
+        )
         return solution.ys[0]
 
     def step(self, action):
@@ -189,8 +209,7 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         if self.screen is None:
             pygame.init()
             pygame.display.init()
-            self.screen = pygame.display.set_mode(
-                (screen_width, screen_height))
+            self.screen = pygame.display.set_mode((screen_width, screen_height))
         if self.clock is None:
             self.clock = pygame.time.Clock()
 
