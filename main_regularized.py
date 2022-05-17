@@ -1,9 +1,13 @@
 from time import time
 from ddp_regularized import DDP
 import jax.numpy as jnp
+import numpy as np
 import env
 import gym
 import matplotlib.pyplot as plt
+from jax import random
+
+key = random.PRNGKey(0)
 
 if __name__ == "__main__":
 
@@ -11,21 +15,18 @@ if __name__ == "__main__":
 
     x0 = env.reset()  # [x,x_dot,theta,theta_dot]
     pred_time = 200
-    u0 = jnp.array(.5*jnp.ones((pred_time - 1, 1)))
+    u0 = random.uniform(key, (pred_time - 1, 1))
+    # u0 = jnp.array(0.5 * jnp.ones((pred_time - 1, 1)))
 
     def next_state(x, u):
-        return env.next_state(x, u)  # x(i+1) = f(x(i), u)
+        return env.next_state_diffrax(x, u)  # x(i+1) = f(x(i), u)
 
+    # TODO: plot running cost and final cost to see the optimize the penalty
     def running_cost(x, u):
         return 0.5 * jnp.sum(jnp.square(u))  # l(x, u)
 
     def final_cost(x):
-        return 0.5 * (
-            10000 * jnp.square(x[2])
-            + 10000 * jnp.square(x[0])
-            + jnp.square(x[1])
-            + jnp.square(x[3])
-        )  # lf(x)
+        return 0.5 * (1000 * jnp.square(x[2]) + 1000 * jnp.square(x[0]))  # lf(x)
 
     dyncst = [next_state, running_cost, final_cost]
 
@@ -55,9 +56,8 @@ if __name__ == "__main__":
             print(
                 "--- Simulating the Inverted Pendulum with the control sequence found with DDP ---"
             )
-
         env.render()
-        action = jnp.asarray(u_seq[t])
+        action = u_seq[t]
         observation, reward, done, info = env.step(action)
 
-    env.close()
+    # env.close()
