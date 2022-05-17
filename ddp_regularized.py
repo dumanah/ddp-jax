@@ -1,14 +1,15 @@
 from functools import partial
-from jax import grad, jacrev, jit, lax
+from jax import grad, host_id, jacrev, jit, lax, jacfwd
 import jax.numpy as jnp
 from time import time
 import warnings
 from pygame import K_s
 from tabulate import tabulate
+import matplotlib.pyplot as plt
 
 
 class DDP:
-    def __init__(self, dyncst, x0, u0):
+    def __init__(self, dyncst, x0, u0, Op=None):
         next_state, running_cost, final_cost = dyncst
         self.x0 = x0
         self.u0 = u0
@@ -23,30 +24,38 @@ class DDP:
         # jit (just in time compilation) is used to speed up the code
         self.f = jit(next_state)
         self.l = jit(running_cost)
-        self.l_vec = jnp.vectorize(self.l)
         self.lf = jit(final_cost)
-        self.lf_vec = jnp.vectorize(self.lf)
         self.lf_x = jit(grad(self.lf))
-        self.lf_xx = jit(jacrev(self.lf_x))
+        self.lf_xx = jit(jacfwd(self.lf_x))
         self.l_x = jit(grad(self.l, 0))
         self.l_u = jit(grad(self.l, 1))
-        self.l_xx = jit(jacrev(self.l_x, 0))
-        self.l_uu = jit(jacrev(self.l_u, 1))
-        self.l_ux = jit(jacrev(self.l_u, 0))
-        self.f_x = jit(jacrev(self.f, 0))
-        self.f_u = jit(jacrev(self.f, 1))
-        self.f_xx = jit(jacrev(self.f_x, 0))
-        self.f_uu = jit(jacrev(self.f_u, 1))
-        self.f_ux = jit(jacrev(self.f_u, 0))
+        self.l_xx = jit(jacfwd(self.l_x, 0))
+        self.l_uu = jit(jacfwd(self.l_u, 1))
+        self.l_ux = jit(jacfwd(self.l_u, 0))
+        self.f_x = jit(jacfwd(self.f, 0))
+        self.f_u = jit(jacfwd(self.f, 1))
+        self.f_xx = jit(jacfwd(self.f_x, 0))
+        self.f_uu = jit(jacfwd(self.f_u, 1))
+        self.f_ux = jit(jacfwd(self.f_u, 0))
 
         # Optimization defaults
-        self.maxIter = 1500
-        self.lmbda = 1
-        self.dlambda = 1
-        self.alpha = 1
-        self.lambdaFactor = 2
-        self.lambdaMin = 1e-6
-        self.lambdaMax = 1e10
+        """ 
+        TODO:
+        Can be given to class instance by a dataclass or some other type
+        such as Op = ["maxIter": 200, "tolFun": "1e-7"] -> DDP(dyncst,x0,u0,Op)
+
+        https://stackoverflow.com/questions/53376099/python-dataclass-from-a-nested-dict
+
+        """
+        if Op == None:
+            self.maxIter = 1000
+            self.lmbda = 1
+            self.dlambda = 1
+            self.alpha = 1
+            self.lambdaFactor = 1.05
+            self.lambdaMin = 1e-6
+            self.lambdaMax = 1e10
+            self.tolFun = 1e-8
 
     @partial(jit, static_argnums=(0,))
     def is_pos_def(self, x):
@@ -188,6 +197,7 @@ class DDP:
         return seqs_all[0], seqs_all[1]  # 0: x_seq_hat, 1: u_seq_hat
 
     def run_iteration(self):
+        # initilization of the sequences
         x_seq = jnp.empty((self.N, self.n))
         x_seq = x_seq.at[0].set(self.x0)
         u_seq = self.u0
@@ -204,7 +214,7 @@ class DDP:
         lambdaFactor = self.lambdaFactor
         lambdaMin = self.lambdaMin
         lambdaMax = self.lambdaMax
-        Alpha = 10 ** jnp.linspace(0, -4, 11)
+        Alpha = 10 ** jnp.linspace(0, -4, 21)
 
         for i in range(self.maxIter):
 
@@ -225,7 +235,7 @@ class DDP:
                     continue
                 back_pass_done = True
 
-            # TO-DO: IMPLEMENTATION OF CHECKING TERMINATION DUE TO SMALL GRADIENT
+            # TODO: IMPLEMENTATION OF CHECKING TERMINATION DUE TO SMALL GRADIENT
 
             backward_finish = time() - backward_start
 
@@ -234,7 +244,10 @@ class DDP:
                 fwd_start = time()
                 for alpha in Alpha:
                     x_new, u_new = self.forward(x_seq, u_seq, k_seq, kk_seq, alpha)
-                    cost_new = self.l(x_new, u_new) + self.lf(x_new[-1])
+                    running_cost_new, final_cost_new = self.l(x_new, u_new), self.lf(
+                        x_new[-1]
+                    )
+                    cost_new = running_cost_new + final_cost_new
                     dcost = cost - cost_new
                     expected = -alpha * (dv[0] + alpha * dv[1])
                     if expected > 0:
@@ -242,7 +255,7 @@ class DDP:
                     else:
                         z = jnp.sign(dcost)
                         warnings.warn(
-                            " Non-positive expected reduction of cost: Should not occur!"
+                            "Non-positive expected reduction of cost: Should not occur!"
                         )
                     if z > 0:
                         fwd_pass_done = True
@@ -251,8 +264,8 @@ class DDP:
                 if not fwd_pass_done:
                     warnings.warn("Failed to find an alpha to decrease the cost!")
 
-                # print(f"Forward-pass of Iteration [{i}] took {(time()-fwd_start):.3f} seconds.")
                 fwd_finish = time() - fwd_start
+
             if fwd_pass_done:
 
                 # decrease lambda
@@ -267,10 +280,23 @@ class DDP:
                 print(
                     "\n",
                     tabulate(
-                        [[i, cost_new, dcost, expected, fwd_finish, backward_finish]],
+                        [
+                            [
+                                i,
+                                cost_new,
+                                running_cost_new,
+                                final_cost_new,
+                                dcost,
+                                expected,
+                                fwd_finish,
+                                backward_finish,
+                            ]
+                        ],
                         headers=[
                             "iteration",
                             "cost",
+                            "running cost",
+                            "final cost",
                             "reduction",
                             "expected",
                             "forward-time",
@@ -278,8 +304,11 @@ class DDP:
                         ],
                     ),
                 )
+                if dcost < self.tolFun:
+                    print("SUCCESS: cost change < tolFun")
+                    break
 
-                # TO-DO: Plot the state and control input, as well as, V, V_x, lambda etc.
+                # TODO: Plot the state and control input, as well as, V, V_x, lambda etc.
                 # https://www.geeksforgeeks.org/how-to-update-a-plot-on-same-figure-during-the-loop/
 
             else:  # no cost improvement
@@ -290,7 +319,5 @@ class DDP:
                 # terminate ?
                 if lmbda > lambdaMax:
                     break
-
-            # TO-DO Terminate w.r.t dcost, i.e dcost  < 1e-6
 
         return x_seq, u_seq
