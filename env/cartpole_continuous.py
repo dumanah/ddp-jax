@@ -8,8 +8,13 @@ import math
 from typing import Union
 import numpy as np
 
-# To test different ode types written for jax, but not implemented
-from diffrax import diffeqsolve, ODETerm, Dopri5, Euler, Heun
+from diffrax import (
+    diffeqsolve,
+    ODETerm,
+    Dopri5,
+    Euler,
+    Tsit5,
+) # (written for jax) that has different ode solving methods which forward-mode diff. (faster) can be applied.
 import gym
 from gym import logger, spaces
 from gym.error import DependencyNotInstalled
@@ -21,10 +26,10 @@ from functools import partial
 
 class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
-    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 20}
+    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 50}
 
     def __init__(self):
-        self.gravity = 9.8
+        self.gravity = 9.81
         self.masscart = 1
         self.masspole = 0.1
         self.total_mass = self.masspole + self.masscart
@@ -35,7 +40,7 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         # will be used later in calculations
         self.polemass_gravity = self.masspole * self.gravity
         self.tau = 0.02  # seconds between state updates
-        self.diffrax_solver = Euler()  # choose ode type to solve with diffrax
+        self.diffrax_solver = Tsit5()  # choose ode type to solve with diffrax
 
         # Angle at which to fail the episode
         self.theta_threshold_radians = 2 * math.pi
@@ -65,8 +70,7 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         self.steps_beyond_done = None
 
-    @partial(jit, static_argnums=(0,))
-    def next_state(self, st, u):     
+    def next_state(self, st, u):
         @partial(jit)
         def state_eq(state, t, u):
             x, x_dot, theta, theta_dot = state
@@ -91,27 +95,6 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         sol = odeint(state_eq, st, jnp.array([0.0, self.tau]), u)
         return jnp.asarray(sol[-1])
 
-    # notice the position of t is different, odesolver of jax.
-    def state_eq_diffrax(self, t, state, u):
-        x, x_dot, theta, theta_dot = state
-        force = u[0]
-        costheta = jnp.cos(theta)
-        sintheta = jnp.sin(theta)
-        calc_den_help = self.masscart + (self.masspole * (sintheta**2))
-
-        x_dot_dot = (
-            force
-            + self.polemass_length * sintheta * (theta_dot**2)
-            - self.polemass_gravity * costheta * sintheta
-        ) / calc_den_help
-        theta_dot_dot = (
-            -force * costheta
-            - self.polemass_length * sintheta * costheta * (theta_dot**2)
-            + self.total_mass * self.gravity * sintheta
-        ) / (self.length * calc_den_help)
-
-        return jnp.array([x_dot, x_dot_dot, theta_dot, theta_dot_dot])
-
     def next_state_euler(self, st, u):
         x, x_dot, theta, theta_dot = st
         force = u[0]
@@ -131,9 +114,32 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         theta = theta + self.tau * theta_dot
         return jnp.array([x, x_dot, theta, theta_dot])
 
+    @partial(jit,static_argnums=(0,))
     def next_state_diffrax(self, st, u):
+        # notice the position of t is different from odeint
+        @partial(jit)
+        def state_eq_diffrax(t, state, u):
+            x, x_dot, theta, theta_dot = state
+            force = u[0]
+            costheta = jnp.cos(theta)
+            sintheta = jnp.sin(theta)
+            calc_den_help = self.masscart + (self.masspole * (sintheta**2))
+
+            x_dot_dot = (
+                force
+                + self.polemass_length * sintheta * (theta_dot**2)
+                - self.polemass_gravity * costheta * sintheta
+            ) / calc_den_help
+            theta_dot_dot = (
+                -force * costheta
+                - self.polemass_length * sintheta * costheta * (theta_dot**2)
+                + self.total_mass * self.gravity * sintheta
+            ) / (self.length * calc_den_help)
+
+            return jnp.array([x_dot, x_dot_dot, theta_dot, theta_dot_dot])
+
         solution = diffeqsolve(
-            ODETerm(self.state_eq_diffrax),
+            ODETerm(state_eq_diffrax),
             self.diffrax_solver,
             t0=0,
             t1=self.tau,
@@ -141,16 +147,16 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             y0=st,
             args=u,
         )
-        return solution.ys[0]
+        return jnp.asarray(solution.ys[0])
 
     def step(self, action):
 
-        err_msg = f"{action!r} ({type(action)}) invalid"
-        assert self.action_space.contains(action), err_msg
-        assert self.state is not None, "Call reset before using step method."
+        #err_msg = f"{action!r} ({type(action)}) invalid"
+        #assert self.action_space.contains(action), err_msg
+        #assert self.state is not None, "Call reset before using step method."
 
         state = self.state
-        self.state = self.next_state(state, action)
+        self.state = self.next_state_diffrax(state, action)
         x, x_dot, theta, theta_dot = self.state
 
         done = bool(
@@ -175,7 +181,7 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
                 )
             self.steps_beyond_done += 1
             reward = 0.0
-        return np.array(self.state, dtype=np.float32), reward, done, {}
+        return np.asarray(self.state, dtype=np.float32), reward, done, {}
 
     def reset(self):
         self.state = jnp.array([0.0, 0.0, jnp.pi, 0.0])
@@ -274,7 +280,6 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
     def close(self):
         if self.screen is not None:
             import pygame
-
             pygame.display.quit()
             pygame.quit()
             self.isopen = False
