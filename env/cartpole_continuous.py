@@ -14,7 +14,7 @@ from diffrax import (
     Dopri5,
     Euler,
     Tsit5,
-) # (written for jax) that has different ode solving methods which forward-mode diff. (faster) can be applied.
+)  # (written for jax) that has different ode solving methods which forward-mode diff. (faster) can be applied.
 import gym
 from gym import logger, spaces
 from gym.error import DependencyNotInstalled
@@ -114,7 +114,7 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         theta = theta + self.tau * theta_dot
         return jnp.array([x, x_dot, theta, theta_dot])
 
-    @partial(jit,static_argnums=(0,))
+    @partial(jit, static_argnums=(0,))
     def next_state_diffrax(self, st, u):
         # notice the position of t is different from odeint
         @partial(jit)
@@ -151,9 +151,9 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
     def step(self, action):
 
-        #err_msg = f"{action!r} ({type(action)}) invalid"
-        #assert self.action_space.contains(action), err_msg
-        #assert self.state is not None, "Call reset before using step method."
+        err_msg = f"{action!r} ({type(action)}) invalid"
+        assert self.action_space.contains(action), err_msg
+        assert self.state is not None, "Call reset before using step method."
 
         state = self.state
         self.state = self.next_state_diffrax(state, action)
@@ -215,6 +215,7 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         if self.screen is None:
             pygame.init()
             pygame.display.init()
+
             self.screen = pygame.display.set_mode((screen_width, screen_height))
         if self.clock is None:
             self.clock = pygame.time.Clock()
@@ -280,6 +281,7 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
     def close(self):
         if self.screen is not None:
             import pygame
+
             pygame.display.quit()
             pygame.quit()
             self.isopen = False
