@@ -317,9 +317,6 @@ class DDP:
                     print("SUCCESS: cost change < tolFun")
                     break
 
-                # TODO: Plot the state and control input, as well as, V, V_x, lambda etc.
-                # https://www.geeksforgeeks.org/how-to-update-a-plot-on-same-figure-during-the-loop/
-
             else:  # no cost improvement
                 # increase lambda
                 dlambda = max(dlambda * lambdaFactor, lambdaFactor)
