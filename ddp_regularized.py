@@ -1,11 +1,15 @@
 from functools import partial
-from jax import grad, host_id, jacrev, jit, lax, jacfwd
+from jax import grad,jacrev, jit, lax, jacfwd
 import jax.numpy as jnp
 from time import time
 import warnings
 from pygame import K_s
 from tabulate import tabulate
+import numpy as np
 import matplotlib.pyplot as plt
+import itertools
+
+plt.ion()
 
 
 class DDP:
@@ -43,9 +47,7 @@ class DDP:
         TODO:
         Can be given to class instance by a dataclass or some other type
         such as Op = ["maxIter": 200, "tolFun": "1e-7"] -> DDP(dyncst,x0,u0,Op)
-
         https://stackoverflow.com/questions/53376099/python-dataclass-from-a-nested-dict
-
         """
         if Op == None:
             self.maxIter = 1000
@@ -56,6 +58,11 @@ class DDP:
             self.lambdaMin = 1e-6
             self.lambdaMax = 1e10
             self.tolFun = 1e-8
+
+        # plot initialization
+        self.fig, self.axs = plt.subplots(2, 2)
+        self.axs = self.axs.flatten()
+        self.plt = list(itertools.chain(*[ax.plot([],[]) for ax in self.axs]))
 
     @partial(jit, static_argnums=(0,))
     def is_pos_def(self, x):
@@ -214,7 +221,7 @@ class DDP:
         lambdaFactor = self.lambdaFactor
         lambdaMin = self.lambdaMin
         lambdaMax = self.lambdaMax
-        Alpha = 10 ** jnp.linspace(0, -4, 21)
+        Alpha = 0.5 ** (jnp.linspace(0, 20, 21))
 
         for i in range(self.maxIter):
 
@@ -277,6 +284,8 @@ class DDP:
                 x_seq = x_new
                 u_seq = u_new
 
+                self.graphics(i, cost, z, lmbda, alpha)
+
                 print(
                     "\n",
                     tabulate(
@@ -321,3 +330,25 @@ class DDP:
                     break
 
         return x_seq, u_seq
+
+    def graphics(self, i, V, z, lmbda, alpha):
+
+        yy = [V,lmbda,alpha,z]
+        titles = ["Cost", "Lambda (Regularization Param.)", "Alpha (Line-Search Param.)", "Reduction/Estimated"]
+        colors = ["b", "r", "g", "c"]
+        
+        for k, y in enumerate(yy):
+            self.plt[k].set_xdata(jnp.append(self.plt[k].get_xdata(), i))
+            self.plt[k].set_ydata(jnp.append(self.plt[k].get_ydata(), yy[k]))
+            self.plt[k].set_color(colors[k])
+            self.axs[k].relim()
+            self.axs[k].autoscale_view()
+            self.axs[k].set_title(titles[k])
+            
+            if y == V:
+                self.axs[0].set_yscale('log')
+
+            self.fig.canvas.draw()
+            self.fig.canvas.flush_events()
+            # Display
+        plt.show()
