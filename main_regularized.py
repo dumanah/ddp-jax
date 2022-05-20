@@ -7,15 +7,13 @@ import gym
 import matplotlib.pyplot as plt
 from jax import random
 
-key = random.PRNGKey(0)
-
 if __name__ == "__main__":
 
     env = gym.make("CartPoleContinuous-v1").env
 
     x0 = env.reset()  # [x,x_dot,theta,theta_dot]
-    pred_time = 200
-    u0 = random.uniform(key, (pred_time - 1, 1))
+    pred_time = 100
+    u0 = random.uniform(random.PRNGKey(int(time())), (pred_time - 1, 1))
     # u0 = jnp.array(0.5 * jnp.ones((pred_time - 1, 1)))
 
     def next_state(x, u):
@@ -26,7 +24,7 @@ if __name__ == "__main__":
         return 0.5 * jnp.sum(jnp.square(u))  # l(x, u)
 
     def final_cost(x):
-        return 0.5 * (1000 * jnp.square(x[2]) + 1000 * jnp.square(x[0]))  # lf(x)
+        return 0.5 * (5000 * jnp.square(x[2]) + 5000 * jnp.square(x[0]))  # lf(x)
 
     dyncst = [next_state, running_cost, final_cost]
 
@@ -59,5 +57,4 @@ if __name__ == "__main__":
         env.render()
         action = u_seq[t]
         observation, reward, done, info = env.step(action)
-
-    # env.close()
+    env.close()
