@@ -2,6 +2,7 @@ diffrax
 env
 gym
 jax
+jaxlib
 matplotlib
 numpy
 pygame
