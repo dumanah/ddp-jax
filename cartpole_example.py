@@ -1,5 +1,5 @@
 from time import time
-from ddp_regularized import DDP
+from ddp import DDP
 import jax.numpy as jnp
 import numpy as np
 import env
@@ -17,14 +17,14 @@ if __name__ == "__main__":
     # u0 = jnp.array(0.5 * jnp.ones((pred_time - 1, 1)))
 
     def next_state(x, u):
-        return env.next_state_diffrax(x, u)  # x(i+1) = f(x(i), u)
+        return env.next_state(x, u)  # x(i+1) = f(x(i), u)
 
     # TODO: plot running cost and final cost to see the optimize the penalty
     def running_cost(x, u):
         return 0.5 * jnp.sum(jnp.square(u))  # l(x, u)
 
     def final_cost(x):
-        return 0.5 * (5000 * jnp.square(x[2]) + 5000 * jnp.square(x[0]))  # lf(x)
+        return 0.5 * 5000*(jnp.square(1 - x[0]) + jnp.square(x[2]))  # lf(x) 
 
     dyncst = [next_state, running_cost, final_cost]
 
