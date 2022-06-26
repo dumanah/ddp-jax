@@ -71,10 +71,10 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.steps_beyond_done = None
 
     @partial(jit, static_argnums=(0,))
-    def next_state_diffrax(self, st, u):
+    def next_state(self, st, u):
         # notice the position of t is different from odeint
         @partial(jit)
-        def state_eq_diffrax(t, state, u):
+        def state_eq(t, state, u):
             x, x_dot, theta, theta_dot = state
             force = u[0]
             costheta = jnp.cos(theta)
@@ -95,7 +95,7 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             return jnp.array([x_dot, x_dot_dot, theta_dot, theta_dot_dot])
 
         solution = diffeqsolve(
-            ODETerm(state_eq_diffrax),
+            ODETerm(state_eq),
             self.diffrax_solver,
             t0=0,
             t1=self.tau,
@@ -112,7 +112,7 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         assert self.state is not None, "Call reset before using step method."
 
         state = self.state
-        self.state = self.next_state_diffrax(state, action)
+        self.state = self.next_state(state, action)
         x, x_dot, theta, theta_dot = self.state
 
         done = bool(
