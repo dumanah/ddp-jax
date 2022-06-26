@@ -70,31 +70,6 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         self.steps_beyond_done = None
 
-    def next_state(self, st, u):
-        @partial(jit)
-        def state_eq(state, t, u):
-            x, x_dot, theta, theta_dot = state
-            force = u[0]
-            costheta = jnp.cos(theta)
-            sintheta = jnp.sin(theta)
-            calc_den_help = self.masscart + (self.masspole * (sintheta**2))
-
-            x_dot_dot = (
-                force
-                + self.polemass_length * sintheta * (theta_dot**2)
-                - self.polemass_gravity * costheta * sintheta
-            ) / calc_den_help
-            theta_dot_dot = (
-                -force * costheta
-                - self.polemass_length * sintheta * costheta * (theta_dot**2)
-                + self.total_mass * self.gravity * sintheta
-            ) / (self.length * calc_den_help)
-
-            return jnp.array([x_dot, x_dot_dot, theta_dot, theta_dot_dot])
-
-        sol = odeint(state_eq, st, jnp.array([0.0, self.tau]), u)
-        return jnp.asarray(sol[-1])
-
     @partial(jit, static_argnums=(0,))
     def next_state_diffrax(self, st, u):
         # notice the position of t is different from odeint
