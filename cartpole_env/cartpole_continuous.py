@@ -69,33 +69,34 @@ class CartPoleContinuousEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.state = None
 
         self.steps_beyond_done = None
+        
+    @partial(jit,static_argnums=(0,))
+    def state_eq(self,t, state, u):
+        x, x_dot, theta, theta_dot = state
+        force = u[0]
+        costheta = jnp.cos(theta)
+        sintheta = jnp.sin(theta)
+        calc_den_help = self.masscart + (self.masspole * (sintheta**2))
+
+        x_dot_dot = (
+            force
+            + self.polemass_length * sintheta * (theta_dot**2)
+            - self.polemass_gravity * costheta * sintheta
+        ) / calc_den_help
+        theta_dot_dot = (
+            -force * costheta
+            - self.polemass_length * sintheta * costheta * (theta_dot**2)
+            + self.total_mass * self.gravity * sintheta
+        ) / (self.length * calc_den_help)
+
+        return jnp.array([x_dot, x_dot_dot, theta_dot, theta_dot_dot])
 
     @partial(jit, static_argnums=(0,))
     def next_state(self, st, u):
         # notice the position of t is different from odeint
-        @partial(jit)
-        def state_eq(t, state, u):
-            x, x_dot, theta, theta_dot = state
-            force = u[0]
-            costheta = jnp.cos(theta)
-            sintheta = jnp.sin(theta)
-            calc_den_help = self.masscart + (self.masspole * (sintheta**2))
-
-            x_dot_dot = (
-                force
-                + self.polemass_length * sintheta * (theta_dot**2)
-                - self.polemass_gravity * costheta * sintheta
-            ) / calc_den_help
-            theta_dot_dot = (
-                -force * costheta
-                - self.polemass_length * sintheta * costheta * (theta_dot**2)
-                + self.total_mass * self.gravity * sintheta
-            ) / (self.length * calc_den_help)
-
-            return jnp.array([x_dot, x_dot_dot, theta_dot, theta_dot_dot])
 
         solution = diffeqsolve(
-            ODETerm(state_eq),
+            ODETerm(self.state_eq),
             self.diffrax_solver,
             t0=0,
             t1=self.tau,
