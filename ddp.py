@@ -19,7 +19,6 @@ class DDP:
         self.u0 = u0
         self.backward_pass_done = 0
         self.n = x0.shape[0]  # state dimension
-        # u0{0,..,N-1} , (we use u0 since x0 is given as initial state not all trajectory states)
         self.N = u0.shape[0] + 1
         self.regType = 1
         self.m = u0.shape[1]  # control input dimension
@@ -36,8 +35,8 @@ class DDP:
         self.l_xx = jit(jacfwd(self.l_x, 0))
         self.l_uu = jit(jacfwd(self.l_u, 1))
         self.l_ux = jit(jacfwd(self.l_u, 0))
-        self.f_x = jit(jacfwd(self.f, 0))
-        self.f_u = jit(jacfwd(self.f, 1))
+        self.f_x = jit(jacrev(self.f, 0))
+        self.f_u = jit(jacrev(self.f, 1))
         self.f_xx = jit(jacfwd(self.f_x, 0))
         self.f_uu = jit(jacfwd(self.f_u, 1))
         self.f_ux = jit(jacfwd(self.f_u, 0))
@@ -57,7 +56,8 @@ class DDP:
             self.lambdaFactor = 1.05
             self.lambdaMin = 1e-6
             self.lambdaMax = 1e10
-            self.tolFun = 1e-8
+            self.tau = 0.95
+            self.tolFun = 1e-7
 
         # plot initialization
         self.fig, self.axs = plt.subplots(2, 2)
@@ -70,14 +70,14 @@ class DDP:
 
     @partial(jit, static_argnums=(0,))
     def backward(self, x_seq, u_seq, lmbda):
+        
         """
         After the observation of high computation time with classic python loop.
         Backward-pass is implemented using jax's while loop, where the condition is checking whether non-positive def. q_uu.
         To understand how it's implemented, see trivial implementation here:
         https://github.com/google/jax/discussions/8375
-
         """
-        V = jnp.zeros(self.N)  # cost-to-go, not used
+        V = jnp.zeros(self.N)  # cost-to-go
         V_x = jnp.array(jnp.zeros((self.N, self.n)))
         V_xx = jnp.array(jnp.zeros((self.N, self.n, self.n)))
         V_xx_reg = jnp.array(jnp.zeros((self.N, self.n, self.n)))
@@ -91,7 +91,7 @@ class DDP:
         dV = jnp.array([0.0, 0.0])
 
         def loop_cond(carry):
-            # these needs to be carried for jax to track them
+            # these needs to be carried for jax to track
             t, x, u, v_x, v_xx, v_xx_reg, _, _, _ = carry
             f_u_t = self.f_u(x[t], u[t])
             v_xx_reg = v_xx_reg.at[t + 1].set(
@@ -109,7 +109,7 @@ class DDP:
             return self.is_pos_def(q_uu_reg) & (t >= 0)
 
         def backward_loop(carry):
-            # these needs to be carried for jax to track them
+            # these needs to be carried for jax to track
             t, x, u, v_x, v_xx, v_xx_reg, k, kk, dv = carry
             f_x_t = self.f_x(x[t], u[t])
             f_u_t = self.f_u(x[t], u[t])
@@ -221,7 +221,7 @@ class DDP:
         lambdaFactor = self.lambdaFactor
         lambdaMin = self.lambdaMin
         lambdaMax = self.lambdaMax
-        Alpha = 0.5 ** (jnp.linspace(0, 20, 21))
+        Alpha = 0.8 ** (jnp.linspace(0, 100, 101))
 
         for i in range(self.maxIter):
 
@@ -267,9 +267,9 @@ class DDP:
                     if z > 0:
                         fwd_pass_done = True
                         break
-
-                if not fwd_pass_done:
-                    warnings.warn("Failed to find an alpha to decrease the cost!")
+                    
+                # if not fwd_pass_done:
+                #     warnings.warn("Failed to find an alpha to decrease the cost!")
 
                 fwd_finish = time() - fwd_start
 
